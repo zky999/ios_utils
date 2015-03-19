@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+IPORT=5900 # VNC default port number, cannot change (on iPhone side)
+LPORT=5900 # VNC default port number, may change to other unused ports
+
+ITUNNEL_LOCK_FILE_FOR_IVNC=${HOME}/bin/ios_utils/itunnel_mux_rev71/lock.ivnc
+ITUNNEL_PID_FILE_FOR_IVNC=${HOME}/bin/ios_utils/itunnel_mux_rev71/pid.ivnc
+
+# Utility functions
+is_exist_procss()
+{
+    wmic path win32_process get commandline |grep "$1" |grep "$2" |grep -q "$3"
+    if [[ $? -eq 0 ]]; then
+	printf "%d" 1
+    else
+	printf "%d" 0
+    fi
+}
+
+LOCK=$(itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" GET)
+if [[ $LOCK -eq 0 ]]; then
+    printf "Opening a new tunnel from local port $LPORT to iPhone port $IPORT..."
+    itunnel_mux --iport $IPORT --lport $LPORT >/dev/null &
+    ITUNNEL_PID=$!
+
+    if [[ $? -eq 0 ]]; then
+	printf 'successfully\n'
+	itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" allocate
+    else
+	printf 'failed\n'
+	exit 2
+    fi
+
+    itunnel_mux_pid_util set $ITUNNEL_PID_FILE_FOR_IVNC $ITUNNEL_PID
+    echo -ne "\e]0;VNC iTunnel_mux Daemon: $ITUNNEL_PID\a"
+elif [[ $LOCK -gt 0 ]]; then
+    printf "Found an existing iTunnel, checking its availability..."
+    EXIST_ITUNNEL_MUX_EXE=$(is_exist_procss "itunnel_mux.exe" "iport $IPORT" "lport $LPORT")
+    if [[ $EXIST_ITUNNEL_MUX_EXE -eq 1 ]]; then
+	printf "yes\n"
+	itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" ALLOCATE
+	ITUNNEL_PID=$(itunnel_mux_pid_util get $ITUNNEL_PID_FILE_FOR_IVNC)
+    	echo -ne "\e]0;Pre-exist VNC iTunnel_mux Daemon: $ITUNNEL_PID\a"
+    else
+	printf "no\n"
+	printf "Did not find any itunnel_mux.exe process.\n" >&2
+	itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" RESET
+	exit 5
+    fi
+else
+    printf "Wrong iTunnel lock number\n"
+    itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" RESET
+    exit 3
+fi
+
+printf 'Running VNC client...'
+IVNC_CMD="$(cygpath -u /cygdrive/c/Program\ Files/RealVNC/VNC\ Viewer/vncviewer.exe)"
+IVNC_ARG="127.0.0.1:$LPORT"
+cygstart -w "$IVNC_CMD" "$IVNC_ARG" 
+printf 'finished.\n'
+
+LOCK=$(itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" GET)
+if [[ $LOCK == 1 ]]; then
+    itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" RELEASE
+	ITUNNEL_PID=$(itunnel_mux_pid_util get "$ITUNNEL_PID_FILE_FOR_IVNC")
+    printf "Closing iTunnel %s..." $ITUNNEL_PID
+    cmd /c "taskkill /f /t /pid $ITUNNEL_PID > NUL" >/dev/null
+    if [[ $? -ne 0 ]]; then
+	printf "failed\n" $pid
+	exit 4
+    else
+	printf "successfully\n" $pid
+	exit 0
+    fi
+elif [[ $LOCK -gt 1 ]]; then
+    printf "Found other program(s) using current tunnel. Keep tunnel open.\n"
+    itunnel_mux_lock_util "$ITUNNEL_LOCK_FILE_FOR_IVNC" RELEASE
+else
+    printf "Wrong lock number, will not kill any process.\n"
+fi

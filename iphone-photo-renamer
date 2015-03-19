@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+if [[ -z "$1" ]]; then
+    img_dir="."
+elif [[ -d "$1" ]]; then
+    img_dir="$1"
+else
+    printf "Usage: %s [DIR]" "$(basename "$0")" >&2
+    exit 1
+fi
+
+find "$img_dir" -maxdepth 1 -type f -iname '*.jpg' -o -iname '*.jpeg' |while read img; do
+    f="$img"
+    exif="$(exiftool "$(cygpath -w "$f")")"
+
+    # Date/Time Original lines
+    dtols="$(grep '^Date/Time Original' <<<"$exif")"
+    dt=""
+    if [[ -n "$dtols" ]]; then
+	dtol="$(head -n 1 <<<"$dtols")"
+	dt="$(sed -n 's/^.*:.*\([0-9]\{4\}\):\([0-9]\{2\}\):\([0-9]\{2\}\) \([0-9]\{2\}\):\([0-9]\{2\}\):\([0-9]\{2\}\).*$/\1-\2-\3 \4\.\5\.\6/p' <<<"$dtol")"
+	#else
+	#echo "No Date/Time Original tag found"
+    fi
+
+    # Custom Rendered tag lines
+    crtls="$(grep '^Custom Rendered' <<<"$exif")"
+    crt=""
+    if [[ -n "$crtls" ]]; then
+	crtl="${crtls[0]}"
+	crt="$(awk '{print $5}' <<<"$crtl")"
+	#else
+	#echo "No Custom Rendered tag found"
+    fi
+    
+    ext="${f##*.}"
+    if [[ -z "$dt" ]]; then
+	printf "Leaving %s\n" "$f"
+    elif [[ "$crt" == "(3)" ]]; then
+	printf "Renaming %s -> %s %s.%s\n" "$f" "${img_dir%%/}/$dt" "HDR" "$ext"
+	mv "$f" "${img_dir%%/}/${dt} HDR.${ext}"
+    else
+	printf "Renaming %s -> %s.%s\n" "$f" "${img_dir%%/}/$dt" "$ext"
+	mv "$f" "${img_dir%%/}/${dt}.${ext}"
+    fi
+done
+
+find "$img_dir" -maxdepth 1 -type f -iname '*.png' |while read img; do
+    f="$img"
+    exif="$(exiftool "$(cygpath -w "$f")")"
+
+    # File Creation Date/Time Lines
+    fcdtls="$(grep '^File Creation Date/Time' <<<"$exif")"
+    dt=""
+    if [[ -n "$fcdtls" ]]; then
+	fcdtl="$(head -n 1 <<<"$fcdtls")"
+	dt="$(sed -n 's/^.*:.*\([0-9]\{4\}\):\([0-9]\{2\}\):\([0-9]\{2\}\) \([0-9]\{2\}\):\([0-9]\{2\}\):\([0-9]\{2\}\).*$/\1-\2-\3 \4\.\5\.\6/p' <<<"$dtol")"
+	#else
+	#echo "No Date/Time Original tag found"
+    fi
+
+    # Custom Rendered tag lines
+    # crtls="$(grep 'Custom Rendered' <<<"$exif")"
+    # crt=""
+    # if [[ -n "$crtls" ]]; then
+    # 	crtl="${crtls[0]}"
+    # 	crt="$(awk '{print $5}' <<<"$crtl")"
+    # 	#else
+    # 	#echo "No Custom Rendered tag found"
+    #fi
+    
+    ext="${f##*.}"
+    if [[ -z "$dt" ]]; then
+	printf "Leaving %s\n" "$f"
+    # elif [[ "$crt" == "(3)" ]]; then
+    # 	printf "Renaming %s -> %s %s.%s\n" "$f" "${img_dir%%/}/$dt" "HDR" "$ext"
+    # 	mv "$f" "${img_dir%%/}/${dt} HDR.${ext}"
+    else
+	printf "Renaming %s -> %s.%s\n" "$f" "${img_dir%%/}/$dt" "$ext"
+	mv "$f" "${img_dir%%/}/${dt}.${ext}"
+    fi
+done
